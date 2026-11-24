@@ -60,7 +60,10 @@ never full URLs, so webhook tokens and credentials in URLs stay off screen.
   message and only arrives after the hold ends. Until that lands, use the Desktop
   chip, or reply from another chat app you've allowed.
 - **Commands:** `/unsend` (or `/unsend <id>`, `/unsend all`), `/sendnow`, and
-  `/undo-send` to list what's waiting and what happened. Hermes' own `/undo`
+  `/undo-send` to list what's waiting and what happened. These run only from a
+  local session (terminal, TUI, Desktop) or from a chat identity listed in
+  `undo_senders`; anyone else gets a refusal (`/undo-send whoami` stays open so a
+  sender can find their ID). Hermes' own `/undo`
   still removes chat turns. Note that the CLI and chats queue slash commands
   while the agent is busy, so during a hold, use the Desktop chip or the chat
   reply.

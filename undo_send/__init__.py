@@ -30,11 +30,16 @@ def register(ctx):
     holder = Holder(store, rules, window)
     ctx.register_middleware("tool_execution", holder)
 
+    def senders() -> set[str]:
+        return parse_senders(ctx.get_config("undo_senders", default=[]))
+
     def handler(name, fn):
         # Hermes may hand us "debug", "/undo-send debug", a list, or keywords.
         def run(*a, **kw):
             raw = commands.parse_arg(name, a, kw)
             holder.seen.append(f"/{name} called with a={a!r} kw={sorted(kw)} -> {raw!r}")
+            if not commands.authorized(kw, senders):
+                return commands.REFUSED
             return fn(raw)
         return run
 
@@ -51,15 +56,14 @@ def register(ctx):
         holder.seen.append(f"/undo-send called with a={a!r} kw={sorted(kw)} -> {raw!r}")
         if raw.strip().lower() == "whoami":
             return commands.whoami(kw.get("source"))
+        if not commands.authorized(kw, senders):
+            return commands.REFUSED
         return commands.listing(store, raw, holder)
 
     ctx.register_command(
         "undo-send", undo_send_cmd,
         description="List waiting/recent actions (/undo-send whoami shows your ID for chat undo)",
     )
-
-    def senders() -> set[str]:
-        return parse_senders(ctx.get_config("undo_senders", default=[]))
 
     ctx.register_hook("pre_gateway_dispatch", commands.gateway_hook(store, senders))
     logger.debug("undo-send registered (store: %s)", store.path)
