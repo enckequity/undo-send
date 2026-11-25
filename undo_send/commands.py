@@ -101,5 +101,28 @@ def whoami(source) -> str:
     me = sender_of(source)
     if not me:
         return "Run /undo-send whoami from the chat app (Telegram, WhatsApp…) you want to undo from."
-    return (f"You are {me}. To allow undo from this chat app, run:\n"
-            f"hermes config set plugins.entries.undo-send.settings.undo_senders \"{me}\"")
+    return (f"You are {me}. To allow undo from this chat app, add \"{me}\" to the "
+            f"undo_senders setting of undo-send.")
+
+
+LOCAL_PLATFORMS = {"cli", "tui", "desktop", "local"}
+REFUSED = "Only an approved sender can do that. /undo-send whoami shows your ID."
+
+
+def authorized(kw: dict, senders=lambda: set()) -> bool:
+    """May the caller of a slash command cancel, release or list held actions?
+
+    A local session (terminal, TUI, Desktop: the host passes such a platform and no source,
+    or a source whose platform is local) is the machine's owner. A messaging session must come
+    from an identity listed in undo_senders. Anything without calling context is refused."""
+    platform = _norm(kw.get("platform"))
+    source = kw.get("source")
+    if source is None:
+        return platform in LOCAL_PLATFORMS
+    if _norm(getattr(source, "platform", "")) == "local":
+        return platform in LOCAL_PLATFORMS
+    return bool(sender_of(source)) and sender_of(source) in senders()
+
+
+def _norm(value) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()

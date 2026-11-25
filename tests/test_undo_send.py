@@ -297,7 +297,7 @@ def test_register_with_fake_ctx(tmp_path, monkeypatch):
     assert "tool_execution" in ctx.mw
     assert set(ctx.cmds) == {"unsend", "sendnow", "undo-send"}
     assert "pre_gateway_dispatch" in ctx.hooks
-    assert ctx.cmds["undo-send"]("") == "Nothing held yet."
+    assert ctx.cmds["undo-send"]("", platform="cli", source=None) == "Nothing held yet."
 
 
 def test_debug_listing_shows_seen_calls(store):
@@ -305,6 +305,62 @@ def test_debug_listing_shows_seen_calls(store):
     call(h, "read_file", {"path": "x"})
     out = commands.listing(store, "debug", h)
     assert "read_file: passed" in out and "args=['path']" in out
+
+
+def _ctx_with(tmp_path, monkeypatch, senders):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+    class Ctx:
+        def __init__(self):
+            self.mw, self.cmds, self.hooks = {}, {}, {}
+
+        def get_config(self, key, default=None):
+            return senders if key == "undo_senders" else default
+
+        def register_middleware(self, kind, fn):
+            self.mw[kind] = fn
+
+        def register_command(self, name, fn, description=""):
+            self.cmds[name] = fn
+
+        def register_hook(self, name, fn):
+            self.hooks[name] = fn
+
+    ctx = Ctx()
+    pkg.register(ctx)
+    return ctx
+
+
+def test_commands_are_limited_to_undo_senders(tmp_path, monkeypatch):
+    ctx = _ctx_with(tmp_path, monkeypatch, ["telegram:777"])
+    store = Store()
+    a = store.add("send_message", "send_message to boss: hi", 60, origin="telegram:42")
+    b = store.add("send_message", "send_message to team: hi", 60, origin="telegram:42")
+    stranger = dict(platform="telegram", source=_Src(user="999"))
+    for cmd, arg in (("unsend", ""), ("unsend", "all"), ("unsend", a), ("sendnow", ""),
+                     ("undo-send", ""), ("undo-send", "debug")):
+        assert ctx.cmds[cmd](arg, **stranger) == commands.REFUSED, (cmd, arg)
+        assert ctx.cmds[cmd](arg) == commands.REFUSED, "no calling context is refused"
+    # a remote source claiming the local platform is still a stranger
+    assert ctx.cmds["unsend"]("all", platform="cli", source=_Src(user="999")) == commands.REFUSED
+    assert len(store.pending()) == 2, "a stranger must not cancel or release held actions"
+    assert "telegram:999" in ctx.cmds["undo-send"]("whoami", **stranger)  # whoami stays open
+
+    owner = dict(platform="telegram", source=_Src(user="777"))
+    assert ctx.cmds["sendnow"](a, **owner).startswith("Sending now")
+    assert "Cancelled 2" in ctx.cmds["unsend"]("all", **owner)  # sendnow only moved a's due time
+    assert store.get(b)["status"] == "cancelled"
+    # local sessions (terminal, or the gateway's local source) are the machine's owner
+    store.add("send_message", "x", 60)
+    assert "Waiting to send" in ctx.cmds["undo-send"]("", platform="cli", source=None)
+    assert "Undone" in ctx.cmds["unsend"]("", platform="local", source=_Src(platform="local"))
+
+
+def test_commands_refuse_everyone_while_undo_senders_is_empty(tmp_path, monkeypatch):
+    ctx = _ctx_with(tmp_path, monkeypatch, [])
+    Store().add("send_message", "x", 60, origin="telegram:42")
+    assert ctx.cmds["unsend"]("all", platform="telegram", source=_Src()) == commands.REFUSED
+    assert len(Store().pending()) == 1
 
 
 @pytest.mark.parametrize("a,kw,want", [
