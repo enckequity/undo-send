@@ -15,8 +15,6 @@ tags: [safety, messaging, undo, human-in-the-loop]
 provides_tools: []
 provides_hooks:
   - pre_gateway_dispatch
-provides_middleware:
-  - tool_execution
 
 config_schema:
   window_seconds:
